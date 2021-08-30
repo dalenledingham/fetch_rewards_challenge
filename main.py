@@ -2,9 +2,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 from datetime import datetime
-import json
-
-from pydantic.fields import T
 
 class Payer(BaseModel):
     name: str
@@ -22,6 +19,7 @@ app = FastAPI()
 user_points = 0
 payers = {}
 transactions = []
+spent_points = []
 
 
 # Root Route
@@ -67,13 +65,8 @@ async def get_all_transactions():
 
 # Spend Route
 
-global spent_points
-spent_points = []
-
 @app.post("/spend/")
 async def spend(points_to_spend: int):
-    global user_points
-
     if points_to_spend > user_points:                                                               # if the user tries to spend more points than they have available
         raise HTTPException(status_code=400, detail="Not enough points")
 
@@ -86,26 +79,20 @@ async def spend(points_to_spend: int):
 
                 if payers[transaction.payer] >= transaction.remaining_points:                       # if payer has more points than transaction
                     points_to_spend = spend_all_transaction_points(points_to_spend, transaction)
-                    add_spent_points(transaction.payer, transaction.points)
 
                 else:                                                                               # if this transaction has more points than payer has left
                     points_to_spend = spend_all_payer_points(points_to_spend, transaction)
-                    add_spent_points(transaction.payer, payers[transaction.payer])
 
             elif payers[transaction.payer] >= transaction.remaining_points:                         # if payer has more points than transaction
                 points_to_spend = spend_all_user_points(points_to_spend, transaction)
-                add_spent_points(transaction.payer, user_points)
 
             elif payers[transaction.payer] >= points_to_spend:                                      # if payer has more points than there are left
                 points_to_spend = spend_all_user_points(points_to_spend, transaction)
-                add_spent_points(transaction.payer, user_points)
 
             else:                                                                                   # if there are more points left than this payer has left
                 points_to_spend = spend_all_payer_points(points_to_spend, transaction)
-                add_spent_points(transaction.payer, payers[transaction.payer])
 
-    spent_points_json = json.dumps(spent_points)
-    return spent_points_json
+    return spent_points
 
 
 # Functions
@@ -115,6 +102,9 @@ def spend_all_transaction_points(points_to_spend: int, transaction: Transaction)
     payers[transaction.payer] -= transaction.remaining_points
     points_to_spend -= transaction.remaining_points
     user_points -= transaction.remaining_points
+
+    add_spent_points(transaction.payer, transaction.remaining_points)
+
     transaction.remaining_points = 0
     transaction.spent = True
     return points_to_spend
@@ -124,6 +114,9 @@ def spend_all_payer_points(points_to_spend: int, transaction: Transaction):
     transaction.remaining_points -= payers[transaction.payer]
     points_to_spend -= payers[transaction.payer]
     user_points -= payers[transaction.payer]
+
+    add_spent_points(transaction.payer, payers[transaction.payer])
+
     payers[transaction.payer] = 0
     return points_to_spend
 
@@ -132,14 +125,15 @@ def spend_all_user_points(points_to_spend: int, transaction: Transaction):
     transaction.remaining_points -= points_to_spend
     payers[transaction.payer] -= points_to_spend
     user_points -= points_to_spend
+
+    add_spent_points(transaction.payer, points_to_spend)
+
     points_to_spend = 0
     return points_to_spend
 
 def add_spent_points(payer: str, points: int):
-    global spent_points
+    if any(payer in line_item for line_item in spent_points):
+        spent_points[dict][payer] -= points
+    else:
+        spent_points.append({"payer": payer, "points": (0 - points)})
 
-    for item in spent_points:
-        if item["payer"] in item.keys():
-            item["points"] -= points
-        else:
-            spent_points.append({"payer": payer, "points": 0 - points})
